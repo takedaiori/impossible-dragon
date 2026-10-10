@@ -1,6 +1,6 @@
 # 🐉🍎💣 Impossible Dragon | 不可能完成的贪吃龙
 
-Impossible Dragon | 不可能完成的贪吃龙
+试玩地址：https://takedaiori.github.io/impossible-dragon/
 
 > 一条龙，一屏幕的诱惑与陷阱 🍓💣
 >
