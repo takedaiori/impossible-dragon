@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#F7F0E4">
+<title>不可能完成的贪吃龙</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#F7F0E4;
+  touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:none;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#3B3630}
+#c{display:block;position:absolute;inset:0;width:100%;height:100%}
+body.playing{cursor:none}
+#ui{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
+#ui.on{display:flex}
+.panel{pointer-events:auto;text-align:center;padding:26px 30px;border-radius:20px;
+  background:rgba(255,253,246,.94);border:1px solid rgba(140,116,80,.18);
+  box-shadow:0 18px 50px rgba(120,96,60,.20);max-width:86vw;min-width:264px;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);animation:pop .28s ease-out}
+@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.emo{font-size:64px;line-height:1;margin-bottom:6px}
+h1{margin:0 0 4px;font-size:23px;letter-spacing:1px;font-weight:800;color:#3B3630}
+.sub{margin:0 0 16px;font-size:12px;color:#8A7F6E;letter-spacing:.5px}
+.rec{font-size:12px;color:#8A7F6E;margin:0 0 16px;line-height:1.7}
+.rec b{color:#D97A00;font-weight:700}
+button{pointer-events:auto;font:inherit;font-size:16px;font-weight:700;color:#fff;
+  background:linear-gradient(180deg,#FFB14E,#F08A22);border:0;border-radius:12px;
+  padding:13px 34px;cursor:pointer;margin:4px;box-shadow:0 6px 16px rgba(240,138,34,.32)}
+button:active{transform:translateY(1px)}
+button.ghost{background:transparent;color:#8A7F6E;border:1px solid rgba(140,116,80,.28);box-shadow:none;font-weight:600}
+.rows{text-align:left;font-size:13px;margin:2px 0 16px;border-top:1px solid rgba(140,116,80,.16);
+  border-bottom:1px solid rgba(140,116,80,.16);padding:12px 0;line-height:1.9}
+.rows div{display:flex;justify-content:space-between;gap:22px}
+.rows span{color:#8A7F6E}
+.rows b{font-weight:700;color:#3B3630}
+.big{font-size:34px;font-weight:800;letter-spacing:1px;margin:0 0 2px;color:#3B3630}
+.gold{color:#D97A00}
+.gray{color:#A2967F}
+#mute{position:absolute;right:14px;top:calc(12px + env(safe-area-inset-top,0px));
+  font-size:22px;pointer-events:auto;cursor:pointer;opacity:.85;z-index:5;user-select:none}
+#lang{position:absolute;left:calc(12px + env(safe-area-inset-left,0px));
+  top:calc(12px + env(safe-area-inset-top,0px));z-index:5;pointer-events:auto;cursor:pointer;
+  user-select:none;font-size:13px;font-weight:700;color:#8A7F6E;background:rgba(255,253,246,.90);
+  border:1px solid rgba(140,116,80,.28);border-radius:16px;padding:5px 12px;line-height:1;
+  box-shadow:0 3px 10px rgba(120,96,60,.12)}
+#lang:active{transform:translateY(1px)}
+.hint{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(26px + env(safe-area-inset-bottom,0px));
+  font-size:13px;color:#4A443B;background:rgba(255,253,246,.90);padding:8px 16px;border-radius:20px;
+  border:1px solid rgba(140,116,80,.18);box-shadow:0 4px 14px rgba(120,96,60,.14);
+  pointer-events:none;opacity:0;transition:opacity .3s;white-space:nowrap}
+.hint.on{opacity:1}
+#warn{position:absolute;left:10px;bottom:10px;font-size:11px;color:#C43B2E;display:none;z-index:6;
+  background:rgba(255,253,246,.85);padding:3px 8px;border-radius:6px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="lang">EN</div>
+<div id="mute">🔊</div>
+<div id="ui"></div>
+<div class="hint" id="hint"></div>
+<div id="warn"></div>
+<script>
+(function () {
+'use strict';
+
+/* ============================ 配置 ============================ */
+var CFG = {
+  BASE_POINTER_PX: 24, DRAGON_INIT_MULT: 2, DRAGON_INIT_CLAMP: [0.045, 0.09],
+  ENTITY_SIZE_RATIO: 0.032, ENTITY_SIZE_MIN_PX: 24,
+
+  GROW_FRUIT_RATIO: 0.0165, SHRINK_MINE_RATIO: 0.0135,
+  DRAGON_MIN_RATIO: 0.03, DRAGON_MIN_PX: 16, WIN_RATIO: 1.0,
+
+  LIVES: 7, IFRAME_MS: 900, CONTACT_TOLERANCE: 0.90,
+
+  HUNGER_ENABLED: true, HUNGER_DELAY: 8, HUNGER_RATE_RATIO: 0.0015,
+
+  GRAB_TOLERANCE_MIN_PX: 12, GRAB_TOLERANCE_RATIO: 0.15, FOLLOW_INTRO_MS: 250,
+
+  // v5：刷新间隔与同屏密度还原到 v3（水果不少）；改为只降地雷比例
+  SPAWN_INTERVAL_MS: 420, N_MAX_HARD: 40, SAFE_GAP_RATIO: 0.06,
+  MIN_ENTITY_GAP_PX: 14, MAX_SAMPLE_TRIES: 24, AREA_PER_ENTITY: 45 * 45,
+  TTL_FRUIT_MS: [7000, 11000], TTL_MINE_MS: [5000, 8000],
+
+  PHASES: [
+    { from:0.00, to:0.25, pMine:0.18, nTarget:16, driftRatio:0.004, name:'孵化' },
+    { from:0.25, to:0.50, pMine:0.25, nTarget:18, driftRatio:0.006, name:'成长' },
+    { from:0.50, to:0.75, pMine:0.32, nTarget:18, driftRatio:0.008, name:'遮天' },
+    { from:0.75, to:1.01, pMine:0.38, nTarget:14, driftRatio:0.010, name:'不可能' }
+  ],
+
+  EMOJI_VISUAL_RATIO: 0.80, PARTICLE_POOL: 512,
+  SHAKE_AMP: 12, SHAKE_MS: 260,
+  FIXED_DT: 1 / 60, MAX_FRAME: 0.25, DPR_MAX: 2,
+  NEWBIE_PROTECTION_PLAY: 3
+};
+
+/* 配色：乳白为主，相近色过渡 */
+var C = {
+  bg0: '#FFFDF6', bg1: '#F8F1E5', bg2: '#EFE6D5',
+  dot: 'rgba(150,124,86,0.13)',
+  text: '#3B3630', textDim: '#8A7F6E',
+  barTrack: 'rgba(150,124,86,0.16)',
+  bar0: '#F5A03C', bar1: '#EE5F49',
+  gold: '#D97A00', soft: '#A2967F',
+  dragonGlow: 'rgba(255,176,59,0.50)',
+  dragonShadow: 'rgba(120,92,50,0.16)',
+  mineGlow: 'rgba(240,70,52,0.30)',
+  veil: 'rgba(255,253,246,0.62)',
+  flash: '#FF4A34'
+};
+
+var GLYPHS = {
+  dragon: '🐉', dragonAlt: '🐲', mine: '💣',
+  fruit: ['🍎','🍏','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🥑'],
+  fx: { boom:'💥', spark:'✨', win:'🎉', life:'❤️', dead:'🖤', star:'⭐' }
+};
+var FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","EmojiOne Color","Android Emoji",sans-serif';
+
+/* ============================ 多语言（zh / en） ============================ */
+var LANGS = {
+  zh: {
+    docTitle:'不可能完成的贪吃龙',
+    title:'不可能完成的贪吃龙',
+    sub:'吃水果变大 · 别碰地雷 · 撑满屏幕高度',
+    best:'最高进度', bestScore:'最高分', fastest:'最快通关',
+    start:'开 始 游 戏',
+    paused:'已暂停', pausedSub:'进度与计时已保留',
+    cont:'继 续', menu:'返回菜单',
+    winTitle:'通关！', loseTitle:'游戏结束',
+    winLabel:'通关用时', loseLabel:'存活时长',
+    fruit:'吃到水果', mineHit:'碰到地雷', maxH:'最大高度', score:'得分',
+    fastestRec:'最快纪录', noRec:'暂无通关纪录',
+    again:'再 来 一 局',
+    hintMouse:'移动鼠标控制 🐉', hintTouch:'按住 🐉 拖动',
+    warnEmoji:'当前系统未检测到彩色 emoji，画面可能显示为方块或空心轮廓',
+    unitSec:'秒', unitMin:'分'
+  },
+  en: {
+    docTitle:'Impossible Dragon',
+    title:'Impossible Dragon',
+    sub:'Eat fruit to grow · Dodge the mines · Fill the screen',
+    best:'Best height', bestScore:'Best score', fastest:'Fastest clear',
+    start:'START GAME',
+    paused:'Paused', pausedSub:'Progress and timer are kept',
+    cont:'RESUME', menu:'MAIN MENU',
+    winTitle:'Cleared!', loseTitle:'Game Over',
+    winLabel:'Clear time', loseLabel:'Time survived',
+    fruit:'Fruit eaten', mineHit:'Mines hit', maxH:'Max height', score:'Score',
+    fastestRec:'Fastest', noRec:'No clear yet',
+    again:'PLAY AGAIN',
+    hintMouse:'Move the mouse to steer 🐉', hintTouch:'Hold 🐉 and drag',
+    warnEmoji:'Color emoji not detected — glyphs may render as boxes or outlines',
+    unitSec:'s', unitMin:'min'
+  }
+};
+var lang = 'zh';
+function T(k) { var d = LANGS[lang]; return (d && d[k] !== undefined) ? d[k] : (LANGS.zh[k] !== undefined ? LANGS.zh[k] : k); }
+
+var STORE_KEY = 'impossibleDragon.v5';
+var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ============================ 视口 ============================ */
+var canvas = document.getElementById('c');
+var ctx = canvas.getContext('2d');
+var View = { W: 0, H: 0, dpr: 1, S: 24, DMIN: 16, SAFE: 48, GROW: 0, SHRINK: 0, D0: 48 };
+
+function layout() {
+  var oldH = View.H, oldW = View.W;
+  View.W = window.innerWidth;
+  View.H = window.innerHeight;
+  View.dpr = Math.min(window.devicePixelRatio || 1, CFG.DPR_MAX);
+  canvas.width = Math.round(View.W * View.dpr);
+  canvas.height = Math.round(View.H * View.dpr);
+  canvas.style.width = View.W + 'px';
+  canvas.style.height = View.H + 'px';
+  ctx.setTransform(View.dpr, 0, 0, View.dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+  View.S = Math.max(CFG.ENTITY_SIZE_MIN_PX, CFG.ENTITY_SIZE_RATIO * View.H);
+  View.DMIN = Math.max(CFG.DRAGON_MIN_PX, CFG.DRAGON_MIN_RATIO * View.H);
+  View.SAFE = CFG.SAFE_GAP_RATIO * View.H;
+  View.GROW = CFG.GROW_FRUIT_RATIO * View.H;
+  View.SHRINK = CFG.SHRINK_MINE_RATIO * View.H;
+  View.D0 = Math.min(Math.max(CFG.BASE_POINTER_PX * CFG.DRAGON_INIT_MULT,
+                              CFG.DRAGON_INIT_CLAMP[0] * View.H),
+                     CFG.DRAGON_INIT_CLAMP[1] * View.H);
+  if (oldH > 0 && Dragon && Dragon.D > 0) {          // 进度按 t 保留
+    var t = Dragon.D / oldH;
+    Dragon.D = Math.max(View.DMIN, t * View.H);
+    Dragon.DVisual = Dragon.D;
+    for (var i = 0; i < ents.length; i++) {
+      ents[i].x = ents[i].x / oldW * View.W;
+      ents[i].y = ents[i].y / oldH * View.H;
+    }
+    Dragon.x = clamp(Dragon.x / oldW * View.W, 0, View.W);
+    Dragon.y = clamp(Dragon.y / oldH * View.H, 0, View.H);
+    Dragon.px = Dragon.x; Dragon.py = Dragon.y;
+    if (!dragging) { Dragon.tx = Dragon.x; Dragon.ty = Dragon.y; }
+    separate();
+  }
+  bgDirty = true;
+}
+
+/* ============================ 工具 ============================ */
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
+function dist(ax, ay, bx, by) { var dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
+function pad(n, w) { n = String(n); while (n.length < w) n = '0' + n; return n; }
+function fmtShort(ms) {
+  ms = Math.max(0, ms);
+  var m = Math.floor(ms / 60000), s = Math.floor(ms % 60000 / 1000), f = Math.floor(ms % 1000 / 100);
+  return pad(m, 2) + ':' + pad(s, 2) + '.' + f;
+}
+function fmtDur(ms) {                                 // 只回答「多久」
+  var s = Math.max(0, ms) / 1000;
+  if (s < 60) return s.toFixed(1) + ' ' + T('unitSec');
+  var m = Math.floor(s / 60);
+  return m + ' ' + T('unitMin') + ' ' + (s - m * 60).toFixed(1) + ' ' + T('unitSec');
+}
+
+/* ============================ 存档 ============================ */
+var Save = { bestProgress: 0, bestScore: 0, bestTimeMs: 0, wins: 0, plays: 0, muted: false, lang: 'zh' };
+function loadSave() {
+  try {
+    var raw = localStorage.getItem(STORE_KEY);
+    if (raw) { var o = JSON.parse(raw); for (var k in Save) if (o[k] !== undefined) Save[k] = o[k]; }
+  } catch (e) {}
+}
+function writeSave() { try { localStorage.setItem(STORE_KEY, JSON.stringify(Save)); } catch (e) {} }
+
+/* =======================================================================
+   emoji 渲染（v5 重写）
+   -----------------------------------------------------------------------
+   旧实现的三个致命缺陷：
+     ① 字号取 b/0.80 = 1.25b，而彩色 emoji 的墨迹高度普遍超过 1.25em，
+        于是字形被 b×b 的画布上下裁掉 —— 这就是「渲染不完全」。
+     ② 用 textBaseline='middle' + measureText 的 actualBoundingBox* 做居中，
+        而该字段在规范里是相对「对齐点」的，部分浏览器却始终相对字母基线返回，
+        于是字形整体偏移 —— 这就是「图像错位」。
+     ③ buckets 最大 2048，字体 2560px、画布 4096×4096（约 67MB/张），
+        超出移动端 canvas 尺寸上限会导致画布空白或黑块。
+   新实现：
+     · probe()：在固定小画布上以 100px 字号画一次，扫描真实 alpha 包围盒，
+       得到「每字号单位」的墨迹宽高与中心偏移 —— 不依赖任何 measureText 语义。
+     · get()：按墨迹尺寸（而非 em 尺寸）反解字号，并留出 CELL_PAD 边距，
+       保证 100% 不裁切、且视觉尺寸 === 碰撞直径。
+     · 精灵最大墨迹 512px、设备像素上限 1200px，显存占用从 ~150MB 降到 ~15MB。
+   ======================================================================= */
+function inkBBox(c, w, h) {
+  var d;
+  try { d = c.getImageData(0, 0, w, h).data; } catch (e) { return null; }
+  var x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (var y = 0; y < h; y++) {
+    var row = y * w * 4;
+    for (var x = 0; x < w; x++) {
+      if (d[row + x * 4 + 3] > 12) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return null;
+  return { w: x1 - x0 + 1, h: y1 - y0 + 1, cx: (x0 + x1 + 1) / 2, cy: (y0 + y1 + 1) / 2 };
+}
+
+var Emoji = {
+  REF: 100,               // 探针字号
+  CELL_PAD: 1.16,         // 精灵画布相对墨迹的边距（每侧约 8%）
+  MAX_INK: 512,           // 单张精灵的最大墨迹尺寸（超出则用 drawImage 放大）
+  MAX_DEV: 1200,          // 单张精灵的设备像素上限
+  buckets: [12,16,20,24,32,40,48,64,80,96,128,160,220,300,400,512],
+  metrics: {}, cache: {},
+
+  probe: function (g) {
+    if (this.metrics[g]) return this.metrics[g];
+    var out = { ok: false, rw: 0.80, rh: 0.80, ox: 0, oy: 0 };   // 兜底：墨迹 ≈ 0.8em、居中
+    var cell = 420;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var cv = document.createElement('canvas');
+      cv.width = cell; cv.height = cell;
+      var c = cv.getContext('2d');
+      c.font = this.REF + 'px ' + FONT;
+      c.textAlign = 'left';               // 用最可靠的字母基线语义
+      c.textBaseline = 'alphabetic';
+      var penX = cell / 2, penY = cell * 0.62;
+      c.fillText(g, penX, penY);
+      var bb = inkBBox(c, cell, cell);
+      if (!bb) break;
+      if ((bb.cx - bb.w / 2) < 1 || (bb.cy - bb.h / 2) < 1 ||
+          (bb.cx + bb.w / 2) > cell - 1 || (bb.cy + bb.h / 2) > cell - 1) {
+        if (attempt === 0) { cell = 700; continue; }               // 画布不够大，放大重试
+      }
+      out.ok = true;
+      out.rw = bb.w / this.REF;          // 每 1px 字号的墨迹宽
+      out.rh = bb.h / this.REF;          // 每 1px 字号的墨迹高
+      out.ox = (bb.cx - penX) / this.REF;// 每 1px 字号的墨迹中心横向偏移
+      out.oy = (bb.cy - penY) / this.REF;
+      break;
+    }
+    this.metrics[g] = out;
+    return out;
+  },
+
+  bucket: function (t) {
+    if (t >= this.MAX_INK) return this.MAX_INK;
+    for (var i = 0; i < this.buckets.length; i++) if (this.buckets[i] >= t) return this.buckets[i];
+    return this.MAX_INK;
+  },
+
+  get: function (g, ink) {
+    var m = this.probe(g);
+    var cell = Math.ceil(ink * this.CELL_PAD);
+    var sd = Math.min(View.dpr, 2);
+    if (cell * sd > this.MAX_DEV) sd = this.MAX_DEV / cell;
+    var dev = Math.max(1, Math.ceil(cell * sd));
+    var key = g + '|' + ink + '|' + dev;
+    var sp = this.cache[key];
+    if (sp) return sp;
+
+    var F = ink / Math.max(m.rw, m.rh);          // 使「墨迹最大边 === ink」的字号
+    var cv = document.createElement('canvas');
+    cv.width = dev; cv.height = dev;
+    var c = cv.getContext('2d');
+    c.scale(dev / cell, dev / cell);
+    c.font = F + 'px ' + FONT;
+    c.textAlign = 'left';
+    c.textBaseline = 'alphabetic';
+    c.fillText(g, cell / 2 - m.ox * F, cell / 2 - m.oy * F);
+    sp = { canvas: cv, ink: ink, cell: cell };
+    this.cache[key] = sp;
+    return sp;
+  },
+
+  // visualSize = 期望的「墨迹最大边」直径（与碰撞直径一致）
+  draw: function (g, visualSize, cx, cy, scale, rot, alpha) {
+    var target = visualSize * (scale === undefined ? 1 : scale);
+    if (!(target > 0.5)) return;
+    var sp = this.get(g, this.bucket(target));
+    var dest = sp.cell * target / sp.ink;
+    ctx.save();
+    if (alpha !== undefined && alpha < 1) ctx.globalAlpha *= alpha;
+    ctx.translate(cx, cy);
+    if (rot) ctx.rotate(rot);
+    ctx.drawImage(sp.canvas, -dest / 2, -dest / 2, dest, dest);
+    ctx.restore();
+  }
+};
+
+/* ============================ 音效 ============================ */
+var Audio = {
+  ctx: null, muted: false,
+  init: function () {
+    if (this.ctx) return;
+    try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  },
+  resume: function () { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+  tone: function (type, f0, f1, dur, gain, delay) {
+    if (!this.ctx || this.muted) return;
+    try {
+      var t = this.ctx.currentTime + (delay || 0);
+      var o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      g.gain.setValueAtTime(gain, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.ctx.destination);
+      o.start(t); o.stop(t + dur);
+    } catch (e) {}
+  },
+  noise: function (dur, gain) {
+    if (!this.ctx || this.muted) return;
+    try {
+      var n = Math.floor(this.ctx.sampleRate * dur);
+      var buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate), ch = buf.getChannelData(0);
+      for (var i = 0; i < n; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      var src = this.ctx.createBufferSource(); src.buffer = buf;
+      var g = this.ctx.createGain(); g.gain.setValueAtTime(gain, this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + dur);
+      src.connect(g); g.connect(this.ctx.destination); src.start();
+    } catch (e) {}
+  },
+  chomp: function (k) { this.tone('sine', 523 * k, 784 * k, 0.08, 0.16); },
+  boom: function () { this.tone('sawtooth', 220, 60, 0.25, 0.28); this.noise(0.25, 0.20); },
+  win: function () { var f = [523, 659, 784, 1047]; for (var i = 0; i < 4; i++) this.tone('triangle', f[i], f[i], 0.22, 0.18, i * 0.11); },
+  lose: function () { var f = [440, 349, 262]; for (var i = 0; i < 3; i++) this.tone('triangle', f[i], f[i], 0.20, 0.16, i * 0.14); },
+  tick: function () { this.tone('square', 880, 880, 0.06, 0.10); },
+  heart: function () { this.tone('sine', 60, 60, 0.10, 0.20); this.tone('sine', 60, 60, 0.10, 0.16, 0.16); }
+};
+
+/* ============================ 特效 ============================ */
+var FX = {
+  ps: [], shakeT: 0, shakeAmp: 0, flashA: 0, flashC: C.flash, confetti: [], combo: 0, pop: 0,
+  init: function () {
+    this.ps.length = 0;
+    for (var i = 0; i < CFG.PARTICLE_POOL; i++)
+      this.ps.push({ on: false, g: '', x: 0, y: 0, vx: 0, vy: 0, life: 0, max: 1, size: 20, rot: 0, vr: 0 });
+  },
+  emit: function (g, x, y, n, spread, size, up) {
+    var count = REDUCED ? Math.ceil(n / 2) : n;
+    for (var i = 0; i < count; i++) {
+      var p = null;
+      for (var j = 0; j < this.ps.length; j++) if (!this.ps[j].on) { p = this.ps[j]; break; }
+      if (!p) return;
+      var a = Math.random() * Math.PI * 2, sp = spread * rnd(0.4, 1);
+      p.on = true; p.g = g; p.x = x; p.y = y;
+      p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp - (up || 0);
+      p.max = p.life = rnd(0.35, 0.75);
+      p.size = size * rnd(0.5, 1);
+      p.rot = rnd(-0.4, 0.4); p.vr = rnd(-6, 6);
+    }
+  },
+  burst: function (g, x, y, n) { this.emit(g, x, y, n, 260, View.S * 0.8, 60); },
+  explode: function (x, y) {
+    this.emit(GLYPHS.fx.boom, x, y, 1, 0, View.S * 2.4, 0);
+    this.emit(GLYPHS.fx.spark, x, y, 12, 340, View.S * 0.6, 40);
+    this.emit('💣', x, y, 4, 240, View.S * 0.5, 30);
+  },
+  shake: function (amp, ms) { if (REDUCED) return; this.shakeAmp = amp; this.shakeT = ms / 1000; },
+  flash: function (c, a) { this.flashC = c; this.flashA = a; },
+  comboTick: function (ate) { if (ate) { this.combo++; this.pop = 1; } else this.combo = 0; },
+  comboReset: function () { this.combo = 0; },
+  rain: function () {
+    if (REDUCED) return;
+    for (var i = 0; i < 80; i++)
+      this.confetti.push({ g: Math.random() < 0.3 ? GLYPHS.fx.win : pick(GLYPHS.fruit),
+        x: rnd(0, View.W), y: rnd(-View.H, 0), vy: rnd(180, 460), vx: rnd(-60, 60),
+        size: rnd(20, 40), rot: rnd(0, 6.28), vr: rnd(-5, 5) });
+  },
+  update: function (dt) {
+    for (var i = 0; i < this.ps.length; i++) {
+      var p = this.ps[i];
+      if (!p.on) continue;
+      p.life -= dt;
+      if (p.life <= 0) { p.on = false; continue; }
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 640 * dt; p.rot += p.vr * dt;
+    }
+    for (var k = this.confetti.length - 1; k >= 0; k--) {
+      var c = this.confetti[k];
+      c.y += c.vy * dt; c.x += c.vx * dt; c.rot += c.vr * dt;
+      if (c.y > View.H + 60) this.confetti.splice(k, 1);
+    }
+    if (this.shakeT > 0) this.shakeT -= dt;
+    if (this.flashA > 0) this.flashA = Math.max(0, this.flashA - dt * 1.2);
+    if (this.pop > 0) this.pop = Math.max(0, this.pop - dt * 8);
+  },
+  drawFront: function () {
+    for (var i = 0; i < this.ps.length; i++) {
+      var p = this.ps[i];
+      if (!p.on) continue;
+      Emoji.draw(p.g, p.size, p.x, p.y, 0.4 + 0.6 * (p.life / p.max), p.rot, p.life / p.max);
+    }
+    for (var k = 0; k < this.confetti.length; k++) {
+      var c = this.confetti[k];
+      Emoji.draw(c.g, c.size, c.x, c.y, 1, c.rot);
+    }
+  }
+};
+
+/* ============================ 龙与实体 ============================ */
+var Dragon = {
+  px: 0, py: 0, x: 0, y: 0, tx: 0, ty: 0,
+  D: 48, DVisual: 48, lives: 7, fruits: 0, mines: 0,
+  invincibleUntil: 0, lastEatAt: 0, rotation: 0, maxT: 0,
+  get r() { return this.D / 2; },
+  get t() { return this.D / View.H; }
+};
+var ents = [];
+
+/* 逐帧分离：保证水果与地雷永不重叠 */
+function separate() {
+  var gap = CFG.MIN_ENTITY_GAP_PX;
+  for (var i = 0; i < ents.length; i++) {
+    var a = ents[i];
+    for (var j = i + 1; j < ents.length; j++) {
+      var b = ents[j];
+      var dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
+      var need = a.r + b.r + gap;
+      if (d2 >= need * need) continue;
+      var d = Math.sqrt(d2);
+      if (d < 1e-4) { dx = rnd(-1, 1); dy = rnd(-1, 1); d = Math.sqrt(dx * dx + dy * dy) || 1; }
+      var push = (need - d) * 0.5, nx = dx / d, ny = dy / d;
+      a.x -= nx * push; a.y -= ny * push;
+      b.x += nx * push; b.y += ny * push;
+    }
+  }
+  for (var k = 0; k < ents.length; k++) {
+    var e = ents[k];
+    e.x = clamp(e.x, e.r, View.W - e.r);
+    e.y = clamp(e.y, e.r, View.H - e.r);
+  }
+}
+
+/* ============================ 生成器 ============================ */
+var Spawner = { lastAt: 0 };
+function currentPhase() {
+  var t = Dragon.t, P = CFG.PHASES;
+  for (var i = 0; i < P.length; i++) if (t >= P[i].from && t < P[i].to) return P[i];
+  return P[P.length - 1];
+}
+function currentPMine() {
+  var p = currentPhase().pMine;
+  if (Save.plays < CFG.NEWBIE_PROTECTION_PLAY) p -= 0.05;   // 新手保护
+  return Math.max(0.05, p);
+}
+function freeArea() { return Math.max(0, View.W * View.H - Math.PI * Dragon.r * Dragon.r); }
+
+Spawner.trySpawn = function (now) {
+  var ph = currentPhase();
+  var cap = Math.min(ph.nTarget, Math.floor(freeArea() / CFG.AREA_PER_ENTITY), CFG.N_MAX_HARD);
+  cap = Math.max(3, cap);
+  if (ents.length >= cap) return;
+  var r = View.S / 2;
+  for (var i = 0; i < CFG.MAX_SAMPLE_TRIES; i++) {
+    var x = rnd(r, View.W - r), y = rnd(r, View.H - r);
+    if (dist(x, y, Dragon.x, Dragon.y) < Dragon.r + r + View.SAFE) continue;
+    var ok = true;
+    for (var j = 0; j < ents.length; j++)
+      if (dist(x, y, ents[j].x, ents[j].y) < r + ents[j].r + CFG.MIN_ENTITY_GAP_PX) { ok = false; break; }
+    if (!ok) continue;
+    var mine = Math.random() < currentPMine();
+    var e = {
+      kind: mine ? 'mine' : 'fruit',
+      glyph: mine ? GLYPHS.mine : pick(GLYPHS.fruit),
+      x: x, y: y, r: r, born: now, appear: 0,
+      ttl: mine ? rnd(CFG.TTL_MINE_MS[0], CFG.TTL_MINE_MS[1]) : rnd(CFG.TTL_FRUIT_MS[0], CFG.TTL_FRUIT_MS[1])
+    };
+    var dr = ph.driftRatio * View.H, a = Math.random() * Math.PI * 2;
+    e.vx = Math.cos(a) * dr * rnd(0.5, 1);
+    e.vy = Math.sin(a) * dr * rnd(0.5, 1);
+    e.next = now + rnd(2000, 4000);
+    ents.push(e);
+    return;
+  }
+};
+
+/* ============================ 碰撞（扫掠圆 CCD） ============================ */
+function enterU(px, py, ax, ay, bx, by, R) {
+  var dx = bx - ax, dy = by - ay, fx = ax - px, fy = ay - py;
+  var a = dx * dx + dy * dy, b = 2 * (fx * dx + fy * dy), c = fx * fx + fy * fy - R * R;
+  if (a < 1e-9) return c <= 0 ? 0 : null;
+  var disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  var s = Math.sqrt(disc), u1 = (-b - s) / (2 * a), u2 = (-b + s) / (2 * a);
+  if (u1 >= 0 && u1 <= 1) return u1;
+  if (u2 >= 0 && u2 <= 1) return u2;
+  return (u1 < 0 && u2 > 1) ? 0 : null;
+}
+
+function resolve(now) {
+  var R = Dragon.r + View.S / 2, hits = [];
+  for (var i = 0; i < ents.length; i++) {
+    var e = ents[i];
+    if (e.appear < 1) continue;
+    var u = enterU(e.x, e.y, Dragon.px, Dragon.py, Dragon.x, Dragon.y, R * CFG.CONTACT_TOLERANCE);
+    if (u !== null) hits.push({ u: u, e: e });
+  }
+  if (!hits.length) { FX.comboReset(); return; }
+  hits.sort(function (a, b) { return a.u - b.u; });
+
+  var ate = false;
+  for (var k = 0; k < hits.length; k++) {
+    var e2 = hits[k].e;
+    if (e2.kind === 'fruit') {
+      if (ate) continue;                                   // 每帧最多 1 个，无冷却
+      eatFruit(e2, now); ate = true;
+    } else {
+      if (now < Dragon.invincibleUntil) continue;
+      if (ate) break;
+      hitMine(e2, now); break;
+    }
+  }
+  FX.comboTick(ate);
+}
+
+function eatFruit(e, now) {
+  Dragon.D = Math.min(Dragon.D + View.GROW, View.H);
+  Dragon.fruits++; Dragon.lastEatAt = now;
+  FX.burst(e.glyph, e.x, e.y, 8);
+  Audio.chomp(1 + Dragon.t * 0.6 + Math.min(FX.combo, 12) * 0.05);
+  var i = ents.indexOf(e); if (i >= 0) ents.splice(i, 1);
+  if (Dragon.maxT < Dragon.t) Dragon.maxT = Dragon.t;
+  if (Dragon.D >= View.H) win();
+}
+
+function hitMine(e, now) {
+  Dragon.D = Math.max(Dragon.D - View.SHRINK, View.DMIN);   // 触底不再变小
+  Dragon.mines++; Dragon.lives--;                           // 但仍扣命
+  Dragon.invincibleUntil = now + CFG.IFRAME_MS;
+  FX.explode(e.x, e.y);
+  FX.shake(CFG.SHAKE_AMP, CFG.SHAKE_MS);
+  FX.flash(C.flash, 0.16);
+  FX.comboReset();
+  Audio.boom();
+  var i = ents.indexOf(e); if (i >= 0) ents.splice(i, 1);
+  if (Dragon.lives <= 0) lose();
+}
+
+/* ============================ 计时 ============================ */
+var Timer = { elapsedMs: 0 };
+
+/* ============================ 状态机 ============================ */
+var S = { BOOT: 0, MENU: 1, COUNT: 2, PLAYING: 3, PAUSED: 4, WIN: 5, LOSE: 6, RESULT: 7 };
+var state = S.BOOT;
+var countLeft = 0, countTick = 0, outroLeft = 0, introUntil = 0, resuming = false;
+var lastSpawnAt = 0, heartAt = 0;
+function setState(s) { state = s; }
+
+function startGame() {
+  ents.length = 0; FX.confetti.length = 0;
+  Dragon.D = View.D0; Dragon.DVisual = View.D0;
+  Dragon.x = Dragon.px = View.W / 2;
+  Dragon.y = Dragon.py = View.H / 2;
+  Dragon.tx = Dragon.x; Dragon.ty = Dragon.y;
+  Dragon.lives = CFG.LIVES; Dragon.fruits = 0; Dragon.mines = 0;
+  Dragon.invincibleUntil = 0; Dragon.rotation = 0; Dragon.maxT = Dragon.t;
+  FX.comboReset();
+  Timer.elapsedMs = 0;
+  Spawner.lastAt = performance.now();
+  lastSpawnAt = performance.now();
+  countLeft = 3; countTick = 0; resuming = false;
+  setState(S.COUNT);
+  uiHide();
+  document.body.classList.add('playing');
+  hint(isTouchDevice ? T('hintTouch') : T('hintMouse'), 2000);
+}
+
+function beginPlay(now) {
+  Dragon.lastEatAt = now;
+  introUntil = (!isTouchDevice && pointerSeen) ? now + CFG.FOLLOW_INTRO_MS : 0;
+  setState(S.PLAYING);
+  Save.plays++; writeSave();
+}
+
+function win() {
+  setState(S.WIN); outroLeft = 2.2;
+  FX.rain(); Audio.win();
+  document.body.classList.remove('playing');
+  if (Save.bestTimeMs === 0 || Timer.elapsedMs < Save.bestTimeMs) Save.bestTimeMs = Timer.elapsedMs;
+  Save.wins++; finish();
+}
+function lose() {
+  setState(S.LOSE); outroLeft = 1.6;
+  FX.explode(Dragon.x, Dragon.y);
+  FX.shake(16, 400); FX.flash(C.flash, 0.26);
+  Audio.lose();
+  document.body.classList.remove('playing');
+}
+
+function score() {
+  return Math.max(0, Math.round(Dragon.fruits * 100 + Dragon.maxT * 1000 - Dragon.mines * 50 +
+    (state === S.WIN || state === S.RESULT && lastWin ? 2000 : 0)));
+}
+var lastWin = false;
+function finish() {
+  var sc = score();
+  if (sc > Save.bestScore) Save.bestScore = sc;
+  if (Dragon.maxT > Save.bestProgress) Save.bestProgress = Dragon.maxT;
+  writeSave();
+}
+function toResult() {
+  lastWin = (state === S.WIN);
+  var sc = score();
+  lastScore = sc;
+  finish();
+  setState(S.RESULT);
+  showResult(lastWin, sc);
+}
+
+/* ============================ 输入 ============================ */
+var pointerX = 0, pointerY = 0, pointerSeen = false;
+var dragging = false, dragId = -1, dragOX = 0, dragOY = 0;
+var isTouchDevice = false, mouseMode = false;
+var hintLeft = 0, hintsLeft = 3;
+
+function onDown(e) {
+  Audio.init(); Audio.resume();
+  if (state !== S.PLAYING) return;
+  if (e.pointerType === 'touch') {
+    isTouchDevice = true;
+    var tol = Math.max(CFG.GRAB_TOLERANCE_MIN_PX, CFG.GRAB_TOLERANCE_RATIO * Dragon.D);
+    if (dist(e.clientX, e.clientY, Dragon.x, Dragon.y) <= Dragon.r + tol) {
+      dragging = true; dragId = e.pointerId;
+      dragOX = Dragon.x - e.clientX; dragOY = Dragon.y - e.clientY;
+      Dragon.tx = Dragon.x; Dragon.ty = Dragon.y;
+      e.preventDefault();
+    } else if (hintsLeft > 0) { hintsLeft--; hint(T('hintTouch'), 1500); }
+  }
+}
+function onMove(e) {
+  if (e.pointerType !== 'touch') {
+    mouseMode = true; pointerX = e.clientX; pointerY = e.clientY; pointerSeen = true;
+  } else if (dragging && e.pointerId === dragId) {
+    Dragon.tx = clamp(e.clientX + dragOX, 0, View.W);
+    Dragon.ty = clamp(e.clientY + dragOY, 0, View.H);
+    e.preventDefault();
+  }
+}
+function onUp(e) { if (dragging && e.pointerId === dragId) { dragging = false; dragId = -1; } }
+window.addEventListener('pointerdown', onDown, { passive: false });
+window.addEventListener('pointermove', onMove, { passive: false });
+window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+window.addEventListener('pointerleave', onUp);
+window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+window.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' || e.key === ' ') {
+    if (state === S.PLAYING) pause(); else if (state === S.PAUSED) resume();
+  }
+});
+function pause() { if (state !== S.PLAYING) return; setState(S.PAUSED); showPause(); }
+function resume() { if (state !== S.PAUSED) return; uiHide(); countLeft = 1.5; countTick = 99; resuming = true; setState(S.COUNT); }
+document.addEventListener('visibilitychange', function () { if (document.hidden && state === S.PLAYING) pause(); });
+
+/* ============================ UI ============================ */
+var ui = document.getElementById('ui'), hintEl = document.getElementById('hint');
+var panelRedraw = null, lastScore = 0;
+function uiHide() { ui.className = ''; ui.innerHTML = ''; panelRedraw = null; }
+function uiShow(html) { ui.innerHTML = html; ui.className = 'on'; }
+function hint(text, ms) { hintEl.textContent = text; hintEl.className = 'hint on'; hintLeft = ms / 1000; }
+
+function showMenu() {
+  var best = Save.bestProgress > 0 ? Math.round(Save.bestProgress * 100) + '%' : '—';
+  var bt = Save.bestTimeMs > 0 ? fmtDur(Save.bestTimeMs) : T('noRec');
+  uiShow('<div class="panel">' +
+    '<div class="emo">🐉</div>' +
+    '<h1>' + T('title') + '</h1>' +
+    '<p class="sub">' + T('sub') + '</p>' +
+    '<p class="rec">' + T('best') + ' <b>' + best + '</b> · ' + T('bestScore') + ' <b>' + Save.bestScore + '</b><br>' + T('fastest') + ' <b>' + bt + '</b></p>' +
+    '<button id="btnStart">' + T('start') + '</button></div>');
+  document.getElementById('btnStart').onclick = function () { Audio.init(); Audio.resume(); startGame(); };
+  panelRedraw = showMenu;
+}
+function showPause() {
+  uiShow('<div class="panel"><div class="emo">⏸</div><h1>' + T('paused') + '</h1>' +
+    '<p class="sub">' + T('pausedSub') + '</p>' +
+    '<button id="btnGo">' + T('cont') + '</button><br><button class="ghost" id="btnQuit">' + T('menu') + '</button></div>');
+  document.getElementById('btnGo').onclick = resume;
+  document.getElementById('btnQuit').onclick = toMenu;
+  panelRedraw = showPause;
+}
+function showResult(isWin, sc) {
+  var recRow = Save.bestTimeMs > 0
+    ? '<div><span>' + T('fastestRec') + '</span><b class="gold">🏆 ' + fmtDur(Save.bestTimeMs) + '</b></div>'
+    : '<div><span>' + T('fastestRec') + '</span><b class="gray">' + T('noRec') + '</b></div>';
+  uiShow('<div class="panel">' +
+    '<div class="emo">' + (isWin ? '🎉' : '💥') + '</div>' +
+    '<h1 class="' + (isWin ? 'gold' : '') + '">' + (isWin ? T('winTitle') : T('loseTitle')) + '</h1>' +
+    '<p class="big ' + (isWin ? 'gold' : '') + '">' + fmtDur(Timer.elapsedMs) + '</p>' +
+    '<p class="sub">' + (isWin ? T('winLabel') : T('loseLabel')) + '</p>' +
+    '<div class="rows">' +
+      '<div><span>' + T('fruit') + '</span><b>' + Dragon.fruits + '</b></div>' +
+      '<div><span>' + T('mineHit') + '</span><b>' + Dragon.mines + '</b></div>' +
+      '<div><span>' + T('maxH') + '</span><b>' + Math.round(Dragon.maxT * 100) + '%</b></div>' +
+      '<div><span>' + T('score') + '</span><b>' + sc + '</b></div>' + recRow + '</div>' +
+    '<button id="btnAgain">' + T('again') + '</button><br><button class="ghost" id="btnMenu">' + T('menu') + '</button></div>');
+  document.getElementById('btnAgain').onclick = startGame;
+  document.getElementById('btnMenu').onclick = toMenu;
+  panelRedraw = function () { showResult(isWin, sc); };
+}
+function toMenu() { setState(S.MENU); uiHide(); document.body.classList.remove('playing'); showMenu(); }
+
+var muteEl = document.getElementById('mute');
+muteEl.onclick = function () { Audio.init(); Audio.muted = !Audio.muted; Save.muted = Audio.muted; writeSave(); syncMute(); };
+function syncMute() { muteEl.textContent = Audio.muted ? '🔇' : '🔊'; }
+
+var langEl = document.getElementById('lang');
+function syncLang() { langEl.textContent = (lang === 'zh') ? 'EN' : '中文'; }
+function setLang(next) {
+  lang = (next === 'en') ? 'en' : 'zh';
+  try { document.documentElement.lang = (lang === 'en') ? 'en' : 'zh-CN'; } catch (e) {}
+  try { document.title = T('docTitle'); } catch (e) {}
+  Save.lang = lang; writeSave();
+  syncLang();
+  if (panelRedraw) panelRedraw();          // 立即重绘当前面板
+}
+langEl.onclick = function () { Audio.init(); Audio.resume(); setLang(lang === 'zh' ? 'en' : 'zh'); };
+
+/* ============================ 绘制 ============================ */
+var bgCanvas = null, bgDirty = true;
+function buildBG() {
+  bgCanvas = document.createElement('canvas');
+  bgCanvas.width = Math.max(1, Math.round(View.W * View.dpr));
+  bgCanvas.height = Math.max(1, Math.round(View.H * View.dpr));
+  var c = bgCanvas.getContext('2d');
+  c.scale(View.dpr, View.dpr);
+  var g = c.createRadialGradient(View.W / 2, View.H * 0.40, 0,
+                                 View.W / 2, View.H * 0.40, Math.max(View.W, View.H) * 0.80);
+  g.addColorStop(0.00, C.bg0); g.addColorStop(0.55, C.bg1); g.addColorStop(1.00, C.bg2);
+  c.fillStyle = g; c.fillRect(0, 0, View.W, View.H);
+  c.fillStyle = C.dot;
+  for (var y = 20; y < View.H; y += 40) for (var x = 20; x < View.W; x += 40) c.fillRect(x, y, 2, 2);
+  bgDirty = false;
+}
+function glow(x, y, r, col, a) {
+  var g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, col); g.addColorStop(1, 'rgba(255,253,246,0)');
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill(); ctx.restore();
+}
+function drawDragon(now) {
+  if (now < Dragon.invincibleUntil && ((now / 90) | 0) % 2 === 0) return;
+  var sz = Dragon.DVisual;
+  var hungry = CFG.HUNGER_ENABLED && (now - Dragon.lastEatAt > CFG.HUNGER_DELAY * 1000);
+  glow(Dragon.x, Dragon.y + sz * 0.10, sz * 0.62, C.dragonShadow, 0.9);
+  glow(Dragon.x, Dragon.y, sz * 0.70, hungry ? 'rgba(150,150,170,0.42)' : C.dragonGlow, 0.95);
+  var sq = 1 + FX.pop * 0.18;
+  ctx.save();
+  ctx.translate(Dragon.x, Dragon.y);
+  ctx.rotate(Dragon.rotation * Math.PI / 180);
+  ctx.scale(sq, 2 - sq);
+  Emoji.draw(GLYPHS.dragon, sz, 0, 0, 1, 0);
+  ctx.restore();
+
+  if (FX.combo >= 2) {
+    var cy = clamp(Dragon.y - Dragon.DVisual / 2 - 26, 30, View.H - 30);
+    var k = Math.min(FX.combo, 12);
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = (20 + k * 2.2) + 'px ' + FONT;
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(255,253,246,.9)';
+    ctx.strokeText('×' + FX.combo, Dragon.x, cy);
+    ctx.fillStyle = C.gold;
+    ctx.fillText('×' + FX.combo, Dragon.x, cy);
+    ctx.restore();
+  }
+}
+function drawHUD(now) {
+  var top = 12, fs = 15, hs = 22, gap = 2;
+  for (var i = 0; i < CFG.LIVES; i++) {
+    var alive = i < Dragon.lives;
+    var pulse = (!alive || (Dragon.lives === 1 && ((now / 400) | 0) % 2 === 0)) ? 0.85 : 1;
+    Emoji.draw(alive ? GLYPHS.fx.life : GLYPHS.fx.dead, hs, 14 + i * (hs + gap), top + hs / 2, pulse, 0, alive ? 1 : 0.30);
+  }
+  ctx.save();
+  ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.font = '700 ' + fs + 'px ui-monospace,Menlo,Consolas,monospace';
+  ctx.fillStyle = C.text;
+  ctx.fillText(fmtShort(Timer.elapsedMs), View.W - 12, top);
+  ctx.font = '700 13px ui-monospace,Menlo,Consolas,monospace';
+  ctx.fillStyle = C.textDim;
+  ctx.fillText(String(score()), View.W - 12, top + fs + 5);
+  ctx.restore();
+
+  var bw = 10, bh = Math.min(View.H * 0.62, 460);
+  var bx = View.W - 20, by = (View.H - bh) / 2;
+  ctx.save();
+  ctx.fillStyle = C.barTrack; rr(bx, by, bw, bh, 5); ctx.fill();
+  var h = bh * clamp(Dragon.t, 0, 1);
+  var g = ctx.createLinearGradient(0, by + bh, 0, by);
+  g.addColorStop(0, C.bar0); g.addColorStop(1, C.bar1);
+  ctx.fillStyle = g; rr(bx, by + bh - h, bw, h, 5); ctx.fill();
+  if (Save.bestProgress > 0) {
+    ctx.fillStyle = C.gold;
+    ctx.fillRect(bx - 4, by + bh - bh * Save.bestProgress - 1, bw + 8, 2);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.font = '700 11px ui-monospace,Menlo,Consolas,monospace';
+  ctx.fillStyle = Dragon.t > 0.85 ? C.gold : C.textDim;
+  ctx.fillText(Math.round(Dragon.t * 100) + '%', bx + bw / 2, by - 6);
+  ctx.restore();
+
+  if (Dragon.lives === 1 && state === S.PLAYING) {
+    ctx.save();
+    var a = 0.10 + 0.08 * Math.sin(now / 240);
+    var rg = ctx.createRadialGradient(View.W / 2, View.H / 2, Math.min(View.W, View.H) * 0.3,
+                                      View.W / 2, View.H / 2, Math.max(View.W, View.H) * 0.62);
+    rg.addColorStop(0, 'rgba(240,70,52,0)'); rg.addColorStop(1, 'rgba(240,70,52,' + a + ')');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, View.W, View.H);
+    ctx.restore();
+  }
+  if (Dragon.t > 0.85 && state === S.PLAYING && !REDUCED) {
+    ctx.save();
+    var pa = 0.14 + 0.10 * Math.sin(now / 180);
+    ctx.strokeStyle = 'rgba(217,122,0,' + pa + ')'; ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, View.W - 6, View.H - 6);
+    ctx.restore();
+  }
+}
+function rr(x, y, w, h, r) {
+  ctx.beginPath();
+  r = Math.min(r, w / 2, h / 2);
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function render(now) {
+  if (bgDirty || !bgCanvas) buildBG();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  var ox = 0, oy = 0;
+  if (FX.shakeT > 0) {
+    var k = FX.shakeT / (CFG.SHAKE_MS / 1000);
+    ox = rnd(-1, 1) * FX.shakeAmp * k; oy = rnd(-1, 1) * FX.shakeAmp * k;
+  }
+  ctx.setTransform(View.dpr, 0, 0, View.dpr, ox * View.dpr, oy * View.dpr);
+  ctx.drawImage(bgCanvas, 0, 0, View.W, View.H);
+
+  for (var i = 0; i < ents.length; i++) {
+    var e = ents[i];
+    var sc = 1;
+    if (e.appear < 1) sc = e.appear < 0.6 ? 0.4 + 0.75 * (e.appear / 0.6) : 1.15 - 0.15 * ((e.appear - 0.6) / 0.4);
+    var a = e.ttl < 700 ? Math.max(0, e.ttl / 700) : 1;
+    if (e.kind === 'mine') glow(e.x, e.y, View.S * 1.1, C.mineGlow, 0.85);
+    Emoji.draw(e.glyph, View.S, e.x, e.y, sc, Math.sin((e.born + now) / 900) * 0.14, a);
+  }
+  if (state !== S.MENU && state !== S.BOOT && state !== S.LOSE) drawDragon(now);
+  FX.drawFront();
+  if (state === S.PLAYING || state === S.PAUSED) drawHUD(now);
+
+  if (state === S.COUNT) {
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.veil; ctx.fillRect(0, 0, View.W, View.H);
+    ctx.font = '800 ' + Math.round(Math.min(View.W, View.H) * 0.2) + 'px ' + FONT;
+    ctx.fillStyle = C.gold;
+    ctx.fillText(Math.ceil(countLeft) > 0 ? String(Math.ceil(countLeft)) : 'GO', View.W / 2, View.H / 2);
+    ctx.restore();
+  }
+  if (state === S.WIN) {
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '800 ' + Math.round(Math.min(View.W, View.H) * 0.09) + 'px ' + FONT;
+    ctx.fillStyle = C.gold; ctx.fillText('POSSIBLE', View.W / 2, View.H * 0.16);
+    ctx.font = '700 ' + Math.round(Math.min(View.W, View.H) * 0.04) + 'px sans-serif';
+    ctx.fillStyle = C.textDim; ctx.fillText(fmtDur(Timer.elapsedMs), View.W / 2, View.H * 0.24);
+    ctx.restore();
+  }
+  if (state === S.LOSE) {
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '800 ' + Math.round(Math.min(View.W, View.H) * 0.08) + 'px ' + FONT;
+    ctx.fillStyle = '#D8452F'; ctx.fillText('IMPOSSIBLE', View.W / 2, View.H * 0.16);
+    ctx.restore();
+  }
+  if (FX.flashA > 0) {
+    ctx.save(); ctx.globalAlpha = FX.flashA; ctx.fillStyle = FX.flashC;
+    ctx.fillRect(-40, -40, View.W + 80, View.H + 80); ctx.restore();
+  }
+}
+
+/* ============================ 主循环 ============================ */
+var acc = 0, last = performance.now(), fpsAcc = 0, fpsN = 0, lowFps = 0;
+function update(dt, now) {
+  if (hintLeft > 0) { hintLeft -= dt; if (hintLeft <= 0) hintEl.className = 'hint'; }
+  FX.update(dt);
+
+  if (state === S.COUNT) {
+    countLeft -= dt;
+    var next = Math.ceil(countLeft);
+    if (next !== countTick) { countTick = next; if (next > 0) Audio.tick(); }
+    if (countLeft <= 0) {
+      if (resuming) { resuming = false; setState(S.PLAYING); uiHide(); introUntil = now + CFG.FOLLOW_INTRO_MS; }
+      else beginPlay(now);
+      Dragon.px = Dragon.x; Dragon.py = Dragon.y;
+      return;
+    }
+    if (!resuming) {
+      Dragon.x = View.W / 2 + Math.sin(now / 700) * 6;
+      Dragon.y = View.H / 2 + Math.cos(now / 900) * 6;
+    }
+    Dragon.px = Dragon.x; Dragon.py = Dragon.y;
+    return;
+  }
+
+  if (state === S.PLAYING) {
+    var desX = Dragon.x, desY = Dragon.y;
+    if (dragging) { desX = Dragon.tx; desY = Dragon.ty; }
+    else if (mouseMode && pointerSeen) { desX = pointerX; desY = pointerY; }
+    desX = clamp(desX, 0, View.W); desY = clamp(desY, 0, View.H);
+
+    if (now < introUntil) {
+      Dragon.x += (desX - Dragon.x) * 0.20;
+      Dragon.y += (desY - Dragon.y) * 0.20;
+    } else {
+      Dragon.rotation = clamp((desX - Dragon.x) / Math.max(dt, 1e-4) * 0.04, -18, 18);
+      Dragon.x = desX; Dragon.y = desY;
+    }
+
+    if (now >= introUntil) resolve(now);
+    if (state !== S.PLAYING) return;
+
+    var ph = currentPhase();
+    for (var i = ents.length - 1; i >= 0; i--) {
+      var e = ents[i];
+      if (e.appear < 1) e.appear = Math.min(1, e.appear + dt / 0.18);
+      e.ttl -= dt * 1000;
+      if (e.ttl <= 0) { ents.splice(i, 1); continue; }
+      e.x += e.vx * dt; e.y += e.vy * dt;
+      if (e.x < e.r) { e.x = e.r; e.vx = -e.vx; }
+      if (e.x > View.W - e.r) { e.x = View.W - e.r; e.vx = -e.vx; }
+      if (e.y < e.r) { e.y = e.r; e.vy = -e.vy; }
+      if (e.y > View.H - e.r) { e.y = View.H - e.r; e.vy = -e.vy; }
+      if (now > e.next) {
+        var a = Math.random() * Math.PI * 2, dr = ph.driftRatio * View.H;
+        e.vx = Math.cos(a) * dr * rnd(0.5, 1);
+        e.vy = Math.sin(a) * dr * rnd(0.5, 1);
+        e.next = now + rnd(2000, 4000);
+      }
+    }
+    separate();
+
+    if (now - lastSpawnAt > CFG.SPAWN_INTERVAL_MS) { Spawner.trySpawn(now); lastSpawnAt = now; }
+
+    if (CFG.HUNGER_ENABLED && now - Dragon.lastEatAt > CFG.HUNGER_DELAY * 1000)
+      Dragon.D = Math.max(Dragon.D - CFG.HUNGER_RATE_RATIO * View.H * dt, View.DMIN);
+
+    Timer.elapsedMs += dt * 1000;
+    if (Dragon.lives === 1 && now > heartAt) { Audio.heart(); heartAt = now + 1200; }
+    Dragon.DVisual += (Dragon.D - Dragon.DVisual) * 0.25;
+    if (Dragon.maxT < Dragon.t) Dragon.maxT = Dragon.t;
+    Dragon.px = Dragon.x; Dragon.py = Dragon.y;
+    return;
+  }
+
+  if (state === S.WIN || state === S.LOSE) {
+    outroLeft -= dt;
+    Dragon.DVisual += (Dragon.D - Dragon.DVisual) * 0.25;
+    if (outroLeft <= 0) toResult();
+  }
+}
+function frame(ts) {
+  var dt = Math.min((ts - last) / 1000, CFG.MAX_FRAME);
+  last = ts; acc += dt;
+  var guard = 0;
+  while (acc >= CFG.FIXED_DT && guard++ < 8) { update(CFG.FIXED_DT, ts); acc -= CFG.FIXED_DT; }
+  render(ts);
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc >= 1) {
+    var fps = fpsN / fpsAcc;
+    if (fps < 50) { lowFps++; if (lowFps >= 2) { CFG.PARTICLE_POOL = 120; lowFps = 0; } } else lowFps = 0;
+    fpsAcc = 0; fpsN = 0;
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ============================ emoji 支持检测 ============================ */
+function checkEmoji() {
+  var m = Emoji.probe(GLYPHS.dragon);
+  if (!m.ok) {
+    var w = document.getElementById('warn');
+    w.style.display = 'block';
+    w.textContent = T('warnEmoji');
+  }
+}
+
+/* ============================ 启动 ============================ */
+function boot() {
+  loadSave();
+  lang = (Save.lang === 'en') ? 'en' : 'zh';
+  try { document.documentElement.lang = (lang === 'en') ? 'en' : 'zh-CN'; } catch (e) {}
+  try { document.title = T('docTitle'); } catch (e) {}
+  syncLang();
+  Audio.muted = !!Save.muted; syncMute();
+  FX.init();
+  Dragon.D = 0;
+  layout();
+  Dragon.D = View.D0; Dragon.DVisual = View.D0;
+  Dragon.x = Dragon.px = Dragon.tx = View.W / 2;
+  Dragon.y = Dragon.py = Dragon.ty = View.H / 2;
+  Dragon.lives = CFG.LIVES; Dragon.maxT = Dragon.t;
+  checkEmoji();
+
+  var rt = null;
+  window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(layout, 150); });
+  window.addEventListener('orientationchange', function () { clearTimeout(rt); rt = setTimeout(layout, 250); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', function () {
+    if (Math.abs(window.innerHeight - View.H) > 40) { clearTimeout(rt); rt = setTimeout(layout, 150); }
+  });
+  setState(S.MENU);
+  showMenu();
+  requestAnimationFrame(frame);
+}
+
+boot();
+})();
+</script>
+</body>
+</html>
